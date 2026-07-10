@@ -29,18 +29,34 @@ class UserbotClient:
         me = await self.client.get_me()
         logger.info("Userbot connected as %s", getattr(me, "username", me.id))
 
-        # Populate Telethon's entity/access-hash cache for every chat this
-        # account is a member of. Without this, chats that were registered
-        # via a bot-side forwarded message (rather than a userbot lookup)
-        # can fail to resolve with "Cannot find any entity" even though the
-        # userbot account is genuinely a member.
+        await self.refresh_dialogs()
+        self._watch_task = asyncio.create_task(self._watch_connection())
+
+    async def refresh_dialogs(self):
+        """Populate Telethon's entity/access-hash cache for every chat this
+        account is a member of, including archived chats. Without this,
+        chats that were registered via a bot-side forwarded message (rather
+        than a userbot lookup) can fail to resolve with "Cannot find any
+        entity" / "Chat not found" even though the userbot account is
+        genuinely a member — Telethon needs to have *seen* the chat at
+        least once in a dialog list to know its access hash."""
         try:
             await self.client.get_dialogs(limit=None)
-            logger.info("Userbot dialog cache populated")
         except Exception as e:
-            logger.warning("Could not pre-populate dialog cache: %s", e)
+            logger.warning("Could not refresh regular dialogs: %s", e)
 
-        self._watch_task = asyncio.create_task(self._watch_connection())
+        try:
+            await self.client.get_dialogs(limit=None, archived=True)
+        except TypeError:
+            # older Telethon versions use folder=1 instead of archived=True
+            try:
+                await self.client.get_dialogs(limit=None, folder=1)
+            except Exception as e:
+                logger.warning("Could not refresh archived dialogs: %s", e)
+        except Exception as e:
+            logger.warning("Could not refresh archived dialogs: %s", e)
+
+        logger.info("Userbot dialog cache refreshed")
 
     async def _watch_connection(self):
         while True:

@@ -7,8 +7,10 @@ from userbot.client import userbot
 
 logger = logging.getLogger("promo_poster")
 
+_ENTITY_ERROR_HINTS = ("cannot find any entity", "no user has", "could not find the input entity")
 
-async def repost_via_userbot(target_id, source_channel_id, message_id, retries=2):
+
+async def repost_via_userbot(target_id, source_channel_id, message_id, retries=2, username=None):
     """Fetch the staged ad message from the ad channel and resend it — via
     the userbot account, not the Bot API — into target_id.
 
@@ -20,6 +22,7 @@ async def repost_via_userbot(target_id, source_channel_id, message_id, retries=2
     rule used elsewhere in the project.
     """
     client = userbot.client
+    refreshed_once = False
 
     for attempt in range(retries + 1):
         try:
@@ -27,10 +30,11 @@ async def repost_via_userbot(target_id, source_channel_id, message_id, retries=2
             if message is None:
                 raise ValueError("Source ad message not found (was it deleted from the ad channel?)")
 
+            target = target_id
             if message.media:
-                await client.send_file(target_id, message.media, caption=message.text or "")
+                await client.send_file(target, message.media, caption=message.text or "")
             else:
-                await client.send_message(target_id, message.text or "")
+                await client.send_message(target, message.text or "")
             return
 
         except FloodWaitError as e:
@@ -41,7 +45,25 @@ async def repost_via_userbot(target_id, source_channel_id, message_id, retries=2
         except ChatWriteForbiddenError:
             raise RuntimeError("Userbot account cannot write in this group (banned/read-only/removed).")
 
-        except RPCError as e:
+        except (ValueError, RPCError) as e:
+            msg = str(e).lower()
+            is_entity_error = any(hint in msg for hint in _ENTITY_ERROR_HINTS)
+
+            # The userbot hasn't cached this chat's access hash yet (e.g. it
+            # was added via a bot-forwarded message before a dialog refresh).
+            # Refresh the dialog cache once, then try resolving by username
+            # if we have one stored, before giving up.
+            if is_entity_error and not refreshed_once:
+                refreshed_once = True
+                logger.info("Entity not cached for %s, refreshing dialogs...", target_id)
+                await userbot.refresh_dialogs()
+                if username:
+                    try:
+                        target_id = await client.get_entity(f"@{username}")
+                    except Exception:
+                        pass
+                continue
+
             if attempt < retries:
                 logger.warning("RPC error reposting to %s (attempt %s/%s): %s",
                                target_id, attempt + 1, retries, e)
@@ -49,4 +71,7 @@ async def repost_via_userbot(target_id, source_channel_id, message_id, retries=2
                 continue
             raise
 
-    raise RuntimeError("Failed to repost after retries (flood wait loop).")
+    raise RuntimeError(
+        "Could not resolve or write to this chat. Make sure the userbot account "
+        "is a member of the group, then remove and re-add it with /set_target."
+    )

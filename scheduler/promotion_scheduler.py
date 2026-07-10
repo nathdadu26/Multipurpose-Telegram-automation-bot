@@ -29,7 +29,10 @@ async def repost_job(bot):
 
     for group in groups:
         try:
-            await repost_via_userbot(group["_id"], settings.ad_channel_id, promo["message_id"])
+            await repost_via_userbot(
+                group["_id"], settings.ad_channel_id, promo["message_id"],
+                username=group.get("username"),
+            )
             logger.info("Posted promotion to %s", group["title"])
             await group_repo.record_success(group["_id"])
         except Exception as e:
