@@ -28,6 +28,18 @@ class UserbotClient:
             raise
         me = await self.client.get_me()
         logger.info("Userbot connected as %s", getattr(me, "username", me.id))
+
+        # Populate Telethon's entity/access-hash cache for every chat this
+        # account is a member of. Without this, chats that were registered
+        # via a bot-side forwarded message (rather than a userbot lookup)
+        # can fail to resolve with "Cannot find any entity" even though the
+        # userbot account is genuinely a member.
+        try:
+            await self.client.get_dialogs(limit=None)
+            logger.info("Userbot dialog cache populated")
+        except Exception as e:
+            logger.warning("Could not pre-populate dialog cache: %s", e)
+
         self._watch_task = asyncio.create_task(self._watch_connection())
 
     async def _watch_connection(self):

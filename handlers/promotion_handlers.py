@@ -83,6 +83,27 @@ async def set_target_receive(update, context):
     if origin is not None and hasattr(origin, "chat"):
         chat = origin.chat
         group_id, title, username = chat.id, chat.title, chat.username
+
+        # Make sure the *userbot* account can actually resolve this chat —
+        # forwarding a message only tells us the bot-API chat ID; the
+        # userbot needs its own entity/access-hash cache populated.
+        try:
+            await userbot.client.get_entity(group_id)
+        except Exception:
+            try:
+                await userbot.client.get_dialogs(limit=None)
+                await userbot.client.get_entity(group_id)
+            except Exception as e:
+                await msg.reply_text(
+                    f"❌ <b>Userbot can't access this group.</b>\n\n"
+                    f"👥 {title}\n\n"
+                    f"The userbot account needs to be a <b>member</b> of this group "
+                    f"(promotion posting uses the userbot, not the bot account). "
+                    f"Add the userbot account to the group and try /set_target again.\n\n"
+                    f"<i>Details: {e}</i>",
+                    parse_mode="HTML",
+                )
+                return WAITING_GROUP
     elif msg.text and "t.me/" in msg.text:
         ref, _ = parse_message_ref(msg.text)
         try:

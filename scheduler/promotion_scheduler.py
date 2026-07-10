@@ -4,6 +4,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from database.repositories.promotion_repo import promotion_repo
 from database.repositories.group_repo import group_repo
+from userbot.promo_poster import repost_via_userbot
 from config.settings import settings
 
 logger = logging.getLogger("scheduler")
@@ -11,7 +12,11 @@ logger = logging.getLogger("scheduler")
 
 async def repost_job(bot):
     """Runs every PROMOTION_INTERVAL seconds. Reposts the stored ad message
-    (never the original) to each group sequentially, GROUP_POST_DELAY apart."""
+    (never the original) to each group sequentially, GROUP_POST_DELAY apart.
+
+    Posting uses the Telethon userbot account rather than the Bot API, so
+    this works even in groups where only the userbot (not the bot account)
+    is a member/admin."""
     promo = await promotion_repo.get_current()
     if not promo or not promo.get("enabled"):
         logger.info("No active promotion to repost.")
@@ -24,11 +29,7 @@ async def repost_job(bot):
 
     for group in groups:
         try:
-            await bot.copy_message(
-                chat_id=group["_id"],
-                from_chat_id=settings.ad_channel_id,
-                message_id=promo["message_id"],
-            )
+            await repost_via_userbot(group["_id"], settings.ad_channel_id, promo["message_id"])
             logger.info("Posted promotion to %s", group["title"])
             await group_repo.record_success(group["_id"])
         except Exception as e:

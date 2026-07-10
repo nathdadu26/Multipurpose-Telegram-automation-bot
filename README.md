@@ -100,3 +100,27 @@ This is a full working implementation of every feature requested, but a few thin
 ## 6. Command registration
 
 `post_init` in `main.py` fetches current bot commands and only calls `set_my_commands` if they differ from the desired list — satisfying "if commands already exist, skip them" without extra state.
+
+## 7. Fix: promotion posting now uses the userbot, not the Bot API
+
+If your bot account isn't an admin/member of your promotion groups (only the
+userbot account is), scheduled reposts used to fail with `Chat not found` —
+the Bot API's `copy_message` requires the *bot* itself to have access to the
+target chat.
+
+`scheduler/promotion_scheduler.py` now calls `userbot/promo_poster.py`, which
+fetches the staged ad from `AD_CHANNEL_ID` and resends it (no forward tag)
+using the **Telethon userbot account** instead. As long as the userbot
+account is a member of the group, this works regardless of the bot account's
+membership there.
+
+Two related hardening changes:
+- `userbot/client.py` now calls `get_dialogs()` once on startup to populate
+  Telethon's entity/access-hash cache for every chat the userbot account is
+  in — without this, a group added via a bot-forwarded message can fail to
+  resolve on the userbot side even though the account is genuinely a member.
+- `/set_target` now verifies the userbot can resolve the group **at
+  add-time** and tells you immediately if it can't (e.g. userbot isn't a
+  member there yet), instead of silently failing during the next scheduled
+  repost hours later.
+
