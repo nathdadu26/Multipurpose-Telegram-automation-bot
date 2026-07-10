@@ -1,7 +1,7 @@
 python-telegram-bot[job-queue]==22.0
 telethon==1.36.0
 tgcrypto==1.2.5
-motor==3.5.1
+motor==3.6.0
 python-dotenv==1.0.1
 APScheduler==3.10.4
 rich==13.7.1
