@@ -1,6 +1,6 @@
 import logging
-from telegram import Update
-from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, CommandHandler, filters
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, CommandHandler, CallbackQueryHandler, filters
 
 from handlers.admin_filter import admin_only
 from utils.error_handler import safe_handler
@@ -80,31 +80,26 @@ async def set_target_start(update, context):
 async def set_target_receive(update, context):
     msg = update.message
     origin = msg.forward_origin
+    resolution_warning = None
 
     if origin is not None and hasattr(origin, "chat"):
         chat = origin.chat
         group_id, title, username = chat.id, chat.title, chat.username
 
-        # Make sure the *userbot* account can actually resolve this chat —
-        # forwarding a message only tells us the bot-API chat ID; the
-        # userbot needs its own entity/access-hash cache populated.
+        # Try to confirm the *userbot* can resolve this chat, but don't
+        # block saving the group if it can't — just warn. The scheduled
+        # promotion job (and its own dialog-refresh retry) will keep
+        # retrying it automatically rather than requiring it to work
+        # perfectly right at add-time.
         try:
             await userbot.client.get_entity(group_id)
         except Exception:
             try:
-                await userbot.client.get_dialogs(limit=None)
+                await userbot.refresh_dialogs()
                 await userbot.client.get_entity(group_id)
             except Exception as e:
-                await msg.reply_text(
-                    f"❌ <b>Userbot can't access this group.</b>\n\n"
-                    f"👥 {title}\n\n"
-                    f"The userbot account needs to be a <b>member</b> of this group "
-                    f"(promotion posting uses the userbot, not the bot account). "
-                    f"Add the userbot account to the group and try /set_target again.\n\n"
-                    f"<i>Details: {e}</i>",
-                    parse_mode="HTML",
-                )
-                return WAITING_GROUP
+                resolution_warning = str(e)
+
     elif msg.text and "t.me/" in msg.text:
         ref, _ = parse_message_ref(msg.text)
         try:
@@ -123,18 +118,30 @@ async def set_target_receive(update, context):
     success = await msg.reply_text(f"✅ <b>Target Added</b>\n\n👥 {title}", parse_mode="HTML")
     context.application.create_task(auto_delete(success, 10))
 
+    if resolution_warning:
+        await msg.reply_text(
+            f"⚠ <b>Saved, but userbot can't reach this group yet.</b>\n\n"
+            f"👥 {title}\n"
+            f"Make sure the userbot account is a member of this group — it will "
+            f"be retried automatically on the next promotion cycle.\n\n"
+            f"<i>Details: {resolution_warning}</i>",
+            parse_mode="HTML",
+        )
+
     # Post the current promotion to this group right away instead of making
-    # it wait for the next hourly cycle.
+    # it wait for the next hourly cycle. Best-effort — failure here never
+    # un-saves the group; the hourly scheduler will keep retrying it.
     promo = await promotion_repo.get_current()
     if promo and promo.get("enabled"):
         try:
             await repost_via_userbot(group_id, settings.ad_channel_id, promo["message_id"], username=username)
+            await group_repo.increment_post_count(group_id)
             note = await msg.reply_text(f"📢 Posted the current promotion to <b>{title}</b> immediately.",
                                          parse_mode="HTML")
             context.application.create_task(auto_delete(note, 10))
         except Exception as e:
             await msg.reply_text(
-                f"⚠ Group added, but the immediate promotion post failed: {e}\n"
+                f"⚠ Group saved, but the immediate promotion post failed: {e}\n"
                 f"It will still be retried on the next hourly cycle."
             )
 
@@ -150,12 +157,50 @@ set_target_conv = ConversationHandler(
 )
 
 
+GROUPS_PAGE_SIZE = 10
+
+
+async def _build_groups_page(page: int):
+    groups = await group_repo.list_all()
+    total = len(groups)
+    total_pages = max(1, (total + GROUPS_PAGE_SIZE - 1) // GROUPS_PAGE_SIZE)
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * GROUPS_PAGE_SIZE
+    chunk = groups[start:start + GROUPS_PAGE_SIZE]
+
+    lines = ["👥 <b>Promoting in Groups</b>\n"]
+    if not chunk:
+        lines.append("No groups added yet. Use /set_target.")
+    else:
+        for g in chunk:
+            lines.append(f"• {g['title']} - {g.get('total_posted', 0)}")
+    text = "\n".join(lines)
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("<<", callback_data=f"groups_page_{page - 1}" if page > 1 else "groups_noop"),
+        InlineKeyboardButton(f"{page}", callback_data="groups_noop"),
+        InlineKeyboardButton(">>", callback_data=f"groups_page_{page + 1}" if page < total_pages else "groups_noop"),
+    ]])
+    return text, keyboard
+
+
 @admin_only
 @safe_handler
 async def list_groups(update, context):
-    groups = await group_repo.list_all()
-    if not groups:
-        await update.message.reply_text("👥 No promotion groups added. Use /set_target.")
+    text, keyboard = await _build_groups_page(1)
+    await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
+
+
+@admin_only
+@safe_handler
+async def groups_page_callback(update, context):
+    query = update.callback_query
+    await query.answer()
+    if query.data == "groups_noop":
         return
-    lines = ["👥 <b>Promotion Groups</b>\n"] + [f"• {g['title']}" for g in groups]
-    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+    page = int(query.data.rsplit("_", 1)[-1])
+    text, keyboard = await _build_groups_page(page)
+    try:
+        await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
+    except Exception:
+        pass

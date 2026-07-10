@@ -1,9 +1,14 @@
+import time
 from telegram.ext import ContextTypes
 from handlers.admin_filter import admin_only
 from utils.error_handler import safe_handler
+from utils.formatting import format_status_progress
 from database.repositories.channel_repo import channel_repo
 from database.repositories.group_repo import group_repo
 from database.repositories.job_repo import job_repo
+from config.settings import settings
+from userbot.client import userbot
+from scheduler.promotion_scheduler import get_promotion_status
 
 
 @admin_only
@@ -39,17 +44,52 @@ async def help_cmd(update, context):
 @safe_handler
 async def status_cmd(update, context):
     job = await job_repo.get_active_job()
+
     if not job:
-        await update.message.reply_text("🔴 No active job.")
-        return
-    await update.message.reply_text(
-        f"🟢 <b>Job Status</b>\n\n"
-        f"ID: <code>{job['_id']}</code>\n"
-        f"Status: {job['status']}\n"
-        f"Progress: {job['current_message']}/{job['end_message']}\n"
-        f"Copied: {job['copied']} | Skipped: {job['skipped']}",
-        parse_mode="HTML",
-    )
+        text = "🔴 No active copy job."
+    else:
+        # Derive elapsed time from the job's creation timestamp (embedded in
+        # its ID) so /status reflects the real running process from the DB —
+        # not just whatever chat happened to start it.
+        try:
+            created_ts = int(job["_id"].rsplit("_", 1)[1])
+        except (ValueError, IndexError):
+            created_ts = int(time.time())
+        elapsed = max(1, time.time() - created_ts)
+        speed_val = job["copied"] / (elapsed / 60)
+        speed = f"{speed_val:.1f} videos/min"
+
+        remaining = max(0, job["end_message"] - job["current_message"])
+        eta_seconds = int(remaining * settings.upload_delay)
+        eta = f"{eta_seconds // 60}m {eta_seconds % 60}s"
+
+        try:
+            src_entity = await userbot.client.get_entity(job["source_channel_id"])
+            source_name = getattr(src_entity, "title", None) or str(job["source_channel_id"])
+        except Exception:
+            source_name = str(job["source_channel_id"])
+
+        target_id = job.get("current_target_channel")
+        target_name = "N/A"
+        if target_id:
+            target_doc = await channel_repo.get(target_id)
+            target_name = target_doc["title"] if target_doc else str(target_id)
+
+        text = format_status_progress(
+            source_name, target_name,
+            job["current_message"], job["start_message"], job["end_message"],
+            job["copied"], job["skipped"], speed, eta,
+            job.get("current_target_channel", "N/A"), job["status"],
+        )
+
+    promo_status = get_promotion_status()
+    if promo_status.get("running"):
+        text += (
+            f"\n\n📢 <b>Promotion Posting (live)</b>\n"
+            f"Group {promo_status['index']}/{promo_status['total']} — {promo_status['current_group']}"
+        )
+
+    await update.message.reply_text(text, parse_mode="HTML")
 
 
 @admin_only

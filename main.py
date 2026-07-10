@@ -14,7 +14,7 @@ from handlers.status_handlers import start_cmd, help_cmd, status_cmd, stats_cmd,
 from handlers.channel_handlers import add_channel_conv, list_channels, remove_channel
 from handlers.copy_handlers import copy_all_conv, copy_button_handler, resume_cmd, cancel_cmd
 from handlers.direct_upload import direct_video_handler
-from handlers.promotion_handlers import ad_promotion_conv, set_target_conv, list_groups
+from handlers.promotion_handlers import ad_promotion_conv, set_target_conv, list_groups, groups_page_callback
 
 setup_logging()
 logger = logging.getLogger("main")
@@ -101,6 +101,7 @@ def main():
     application.add_handler(set_target_conv)
 
     application.add_handler(CallbackQueryHandler(copy_button_handler, pattern="^copy_"))
+    application.add_handler(CallbackQueryHandler(groups_page_callback, pattern="^groups_"))
     application.add_handler(direct_video_handler)
 
     application.run_polling(allowed_updates=["message", "callback_query"])

@@ -6,6 +6,7 @@ from telegram.ext import ContextTypes, MessageHandler, filters
 from handlers.admin_filter import admin_only
 from utils.error_handler import safe_handler
 from database.repositories.channel_repo import channel_repo
+from database.repositories.media_repo import media_repo
 from config.settings import settings
 from userbot.client import userbot
 
@@ -22,6 +23,17 @@ async def handle_direct_video(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not msg.video:
         return
 
+    # Bot API gives us file_unique_id for free — a ready-made dedup key,
+    # no download needed to check it.
+    dup_key = f"botapi:{msg.video.file_unique_id}"
+    if await media_repo.exists(dup_key):
+        await msg.reply_text("⏭ This video was already uploaded before — skipped as a duplicate.")
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+        return
+
     target = await channel_repo.get_available_channel(settings.channel_limit)
     if not target:
         await msg.reply_text("❌ No available target channel. All channels are full.")
@@ -34,6 +46,7 @@ async def handle_direct_video(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     await userbot.client.send_file(target["_id"], buffer, caption="")
     await channel_repo.increment_upload(target["_id"])
+    await media_repo.record(dup_key, size=msg.video.file_size)
 
     try:
         await msg.delete()

@@ -9,7 +9,7 @@ class GroupRepo:
     async def add(self, group_id, title, username=None):
         doc = {
             "_id": group_id, "title": title, "username": username,
-            "active": True, "fail_count": 0,
+            "active": True, "fail_count": 0, "total_posted": 0,
         }
         await self.col.update_one({"_id": group_id}, {"$setOnInsert": doc}, upsert=True)
         return await self.col.find_one({"_id": group_id})
@@ -35,6 +35,9 @@ class GroupRepo:
 
     async def record_success(self, group_id):
         await self.col.update_one({"_id": group_id}, {"$set": {"fail_count": 0}})
+
+    async def increment_post_count(self, group_id, amount=1):
+        await self.col.update_one({"_id": group_id}, {"$inc": {"total_posted": amount}})
 
 
 group_repo = GroupRepo()
