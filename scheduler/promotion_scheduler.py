@@ -34,24 +34,25 @@ async def repost_job(bot):
         except Exception as e:
             logger.error("Failed to post promotion to %s: %s", group["title"], e)
             fail_count, deactivated = await group_repo.record_failure(group["_id"])
-            try:
-                if deactivated:
-                    await bot.send_message(
-                        settings.admin_id,
-                        f"⚠ <b>Group Deactivated</b>\n\n👥 {group['title']}\n"
-                        f"Failed {fail_count} times in a row ({e}).\n"
-                        f"Removed from promotion rotation — re-add with /set_target once fixed.",
-                        parse_mode="HTML",
-                    )
-                else:
-                    await bot.send_message(
-                        settings.admin_id,
-                        f"⚠ <b>Promotion Failed</b>\n\n👥 {group['title']}\n"
-                        f"Attempt {fail_count}/3\nReason: {e}",
-                        parse_mode="HTML",
-                    )
-            except Exception:
-                pass
+            for admin_id in settings.admin_ids:
+                try:
+                    if deactivated:
+                        await bot.send_message(
+                            admin_id,
+                            f"⚠ <b>Group Deactivated</b>\n\n👥 {group['title']}\n"
+                            f"Failed {fail_count} times in a row ({e}).\n"
+                            f"Removed from promotion rotation — re-add with /set_target once fixed.",
+                            parse_mode="HTML",
+                        )
+                    else:
+                        await bot.send_message(
+                            admin_id,
+                            f"⚠ <b>Promotion Failed</b>\n\n👥 {group['title']}\n"
+                            f"Attempt {fail_count}/3\nReason: {e}",
+                            parse_mode="HTML",
+                        )
+                except Exception:
+                    pass
         await asyncio.sleep(settings.group_post_delay)
 
 

@@ -41,7 +41,7 @@ BOT_TOKEN=          # from @BotFather
 API_ID=
 API_HASH=
 STRING_SESSION=
-ADMIN_ID=           # your numeric Telegram user id (e.g. from @userinfobot)
+ADMIN_IDS=          # comma-separated Telegram user IDs (e.g. 123456,789012)
 AD_CHANNEL_ID=      # a private channel the bot/userbot can post to, used to stage ads
 MONGO_URI=          # MongoDB Atlas connection string (see below)
 MONGO_DB_NAME=telegram_bot
@@ -75,7 +75,7 @@ Since the bot uses long-polling (not webhooks), Railway's ephemeral filesystem i
 
 ## 3. Feature notes / commands
 
-All commands are admin-only (`ADMIN_ID`); every other user is silently ignored.
+All commands are admin-only (`ADMIN_IDS`); every other user is silently ignored. Multiple admins are supported — set `ADMIN_IDS` as a comma-separated list. The legacy `ADMIN_ID` (single value) is also accepted for backward compatibility.
 
 - `/add_channel` — forward a message from a target channel to register it (repeat for unlimited channels). Capacity is 2000 videos/channel (`CHANNEL_LIMIT`); the engine auto-advances to the next channel with room.
 - `/copy_all` — send a starting then ending message link/ID (e.g. `https://t.me/c/3518263203/327994` or a bare `327994`). Only actual video files are copied (photos/audio/voice/gifs/documents/text/stickers/polls are skipped); captions are stripped; messages are always copied, never forwarded. A single progress message is edited in place every ~10s with a progress bar, ETA, speed, and Pause/Restart/Cancel buttons. On completion the source chat is auto-added to a Telegram **Completed** chat folder via Telethon's dialog-filter API.
