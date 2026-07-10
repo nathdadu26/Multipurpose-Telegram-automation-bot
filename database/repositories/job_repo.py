@@ -33,5 +33,8 @@ class JobRepo:
             {"status": {"$in": ["running", "paused"]}}, sort=[("_id", -1)]
         )
 
+    async def get_all_running(self):
+        return [d async for d in self.col.find({"status": "running"})]
+
 
 job_repo = JobRepo()

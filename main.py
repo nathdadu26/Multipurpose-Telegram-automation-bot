@@ -9,6 +9,7 @@ from database.mongo import mongo
 from userbot.client import userbot
 from scheduler.promotion_scheduler import start_scheduler
 
+from database.repositories.job_repo import job_repo
 from handlers.status_handlers import start_cmd, help_cmd, status_cmd, stats_cmd, logs_cmd
 from handlers.channel_handlers import add_channel_conv, list_channels, remove_channel
 from handlers.copy_handlers import copy_all_conv, copy_button_handler, resume_cmd, cancel_cmd
@@ -49,6 +50,15 @@ async def post_init(application):
 
     mongo.connect()
     logger.info("Database connected")
+
+    # A job left as "running" in the DB with no live in-process runner means
+    # the bot restarted mid-job (redeploy, crash, etc). Demote it to
+    # "paused" so it doesn't permanently block new /copy_all jobs and so
+    # /resume can properly pick it back up.
+    stale_jobs = await job_repo.get_all_running()
+    for job in stale_jobs:
+        await job_repo.update(job["_id"], status="paused")
+        logger.warning("Job %s was left 'running' from a previous run — marked as 'paused'. Use /resume to continue it.", job["_id"])
 
     await userbot.start()
 

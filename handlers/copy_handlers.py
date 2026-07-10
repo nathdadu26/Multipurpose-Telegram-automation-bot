@@ -181,6 +181,23 @@ async def start_job(context, job_id, source_id, source_ref):
     context.application.create_task(_run())
 
 
+async def force_cancel_job(job_id):
+    """Cancel a job whether or not its in-memory runner still exists.
+    After a redeploy/restart, `active_runners` is empty even though the DB
+    might still say a job is 'running' — this makes sure Cancel always
+    actually updates the database, instead of silently doing nothing."""
+    runner = active_runners.get(job_id)
+    if runner:
+        runner.cancel()
+        return "live"
+
+    job = await job_repo.get(job_id)
+    if job and job["status"] in ("running", "paused"):
+        await job_repo.update(job_id, status="cancelled")
+        return "stale"
+    return "none"
+
+
 @admin_only
 @safe_handler
 async def copy_button_handler(update, context):
@@ -192,8 +209,22 @@ async def copy_button_handler(update, context):
     runner = active_runners.get(job_id)
 
     if query.data == "copy_cancel":
-        if runner:
-            runner.cancel()
+        outcome = await force_cancel_job(job_id)
+        if outcome == "stale":
+            try:
+                await query.edit_message_text(
+                    "🔴 <b>Job cancelled.</b>\n\n"
+                    "(No live process was found for it — likely from before a restart — "
+                    "but the database has now been updated.)",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
+        elif outcome == "none":
+            try:
+                await query.edit_message_text("This job is already finished.")
+            except Exception:
+                pass
 
     elif query.data == "copy_pause":
         if runner:
@@ -243,8 +274,22 @@ async def resume_cmd(update, context):
 @safe_handler
 async def cancel_cmd(update, context):
     job_id = context.chat_data.get("active_job_id")
-    if job_id and job_id in active_runners:
-        active_runners[job_id].cancel()
+    if not job_id:
+        # chat_data can be lost across a restart even though the DB still
+        # has an active job — fall back to whatever the DB says is active.
+        job = await job_repo.get_active_job()
+        if not job:
+            await update.message.reply_text("No active job.")
+            return
+        job_id = job["_id"]
+
+    outcome = await force_cancel_job(job_id)
+    if outcome == "live":
         await update.message.reply_text("🔴 Cancelling job...")
+    elif outcome == "stale":
+        await update.message.reply_text(
+            "🔴 Job cancelled and database updated. "
+            "(No live process was found for it — likely left over from before a restart.)"
+        )
     else:
-        await update.message.reply_text("No active job in this chat.")
+        await update.message.reply_text("No active job to cancel.")

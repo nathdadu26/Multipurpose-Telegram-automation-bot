@@ -10,6 +10,7 @@ from database.repositories.promotion_repo import promotion_repo
 from database.repositories.group_repo import group_repo
 from config.settings import settings
 from userbot.client import userbot
+from userbot.promo_poster import repost_via_userbot
 
 logger = logging.getLogger("promotion")
 
@@ -121,6 +122,22 @@ async def set_target_receive(update, context):
     await group_repo.add(group_id, title, username)
     success = await msg.reply_text(f"✅ <b>Target Added</b>\n\n👥 {title}", parse_mode="HTML")
     context.application.create_task(auto_delete(success, 10))
+
+    # Post the current promotion to this group right away instead of making
+    # it wait for the next hourly cycle.
+    promo = await promotion_repo.get_current()
+    if promo and promo.get("enabled"):
+        try:
+            await repost_via_userbot(group_id, settings.ad_channel_id, promo["message_id"], username=username)
+            note = await msg.reply_text(f"📢 Posted the current promotion to <b>{title}</b> immediately.",
+                                         parse_mode="HTML")
+            context.application.create_task(auto_delete(note, 10))
+        except Exception as e:
+            await msg.reply_text(
+                f"⚠ Group added, but the immediate promotion post failed: {e}\n"
+                f"It will still be retried on the next hourly cycle."
+            )
+
     return ConversationHandler.END
 
 
