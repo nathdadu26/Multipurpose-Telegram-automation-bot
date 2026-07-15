@@ -14,7 +14,7 @@ from handlers.status_handlers import start_cmd, help_cmd, status_cmd, stats_cmd,
 from handlers.channel_handlers import add_channel_conv, list_channels, remove_channel
 from handlers.copy_handlers import copy_all_conv, copy_button_handler, resume_cmd, cancel_cmd
 from handlers.direct_upload import direct_video_handler
-from handlers.promotion_handlers import ad_promotion_conv, set_target_conv, list_groups, groups_page_callback
+from handlers.promotion_handlers import ad_promotion_conv, set_target_conv, list_groups, groups_page_callback, remove_group
 
 setup_logging()
 logger = logging.getLogger("main")
@@ -29,6 +29,7 @@ COMMANDS = [
     BotCommand("ad_promotion", "Set promotional message"),
     BotCommand("set_target", "Add promotion group"),
     BotCommand("groups", "List promotion groups"),
+    BotCommand("remove_group", "Remove a promotion group"),
     BotCommand("cancel", "Cancel current job"),
     BotCommand("resume", "Resume paused job"),
     BotCommand("status", "Show job status"),
@@ -92,6 +93,7 @@ def main():
     application.add_handler(CommandHandler("channels", list_channels))
     application.add_handler(CommandHandler("remove_channel", remove_channel))
     application.add_handler(CommandHandler("groups", list_groups))
+    application.add_handler(CommandHandler("remove_group", remove_group))
     application.add_handler(CommandHandler("resume", resume_cmd))
     application.add_handler(CommandHandler("cancel", cancel_cmd))
 

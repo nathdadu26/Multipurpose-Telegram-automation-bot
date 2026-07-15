@@ -5,12 +5,14 @@ from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, Comm
 from handlers.admin_filter import admin_only
 from utils.error_handler import safe_handler
 from utils.auto_delete import auto_delete
-from utils.parsers import parse_message_ref
+from utils.parsers import parse_message_ref, build_message_link
 from database.repositories.promotion_repo import promotion_repo
 from database.repositories.group_repo import group_repo
 from config.settings import settings
 from userbot.client import userbot
 from userbot.promo_poster import repost_via_userbot
+from userbot.folder_manager import add_to_posted_groups_folder
+from scheduler.promotion_scheduler import notify_group_failure
 
 logger = logging.getLogger("promotion")
 
@@ -81,6 +83,7 @@ async def set_target_receive(update, context):
     msg = update.message
     origin = msg.forward_origin
     resolution_warning = None
+    group_link = None
 
     if origin is not None and hasattr(origin, "chat"):
         chat = origin.chat
@@ -101,6 +104,7 @@ async def set_target_receive(update, context):
                 resolution_warning = str(e)
 
     elif msg.text and "t.me/" in msg.text:
+        group_link = msg.text.strip()
         ref, _ = parse_message_ref(msg.text)
         try:
             entity = await userbot.client.get_entity(ref)
@@ -114,9 +118,14 @@ async def set_target_receive(update, context):
         await msg.reply_text("❌ Please forward a group message or send a valid group link.")
         return WAITING_GROUP
 
-    await group_repo.add(group_id, title, username)
+    await group_repo.add(group_id, title, username, link=group_link)
     success = await msg.reply_text(f"✅ <b>Target Added</b>\n\n👥 {title}", parse_mode="HTML")
     context.application.create_task(auto_delete(success, 10))
+
+    try:
+        await add_to_posted_groups_folder(group_id)
+    except Exception as e:
+        logger.error("Couldn't add %s to 'Posted Groups' folder: %s", title, e)
 
     if resolution_warning:
         await msg.reply_text(
@@ -129,20 +138,35 @@ async def set_target_receive(update, context):
         )
 
     # Post the current promotion to this group right away instead of making
-    # it wait for the next hourly cycle. Best-effort — failure here never
-    # un-saves the group; the hourly scheduler will keep retrying it.
+    # it wait for the next hourly cycle. If this fails, the group is
+    # deactivated immediately (no retries) and the admin is notified with
+    # a button to the group, same as a failure during the hourly cycle.
     promo = await promotion_repo.get_current()
     if promo and promo.get("enabled"):
         try:
-            await repost_via_userbot(group_id, settings.ad_channel_id, promo["message_id"], username=username)
+            sent = await repost_via_userbot(group_id, settings.ad_channel_id, promo["message_id"], username=username)
             await group_repo.increment_post_count(group_id)
-            note = await msg.reply_text(f"📢 Posted the current promotion to <b>{title}</b> immediately.",
-                                         parse_mode="HTML")
-            context.application.create_task(auto_delete(note, 10))
+
+            link = build_message_link(group_id, sent.id, username=username) if sent else None
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 View Post", url=link)]]) if link else None
+
+            note = await msg.reply_text(
+                f"📢 Posted the current promotion to <b>{title}</b> immediately.",
+                parse_mode="HTML", reply_markup=keyboard,
+            )
+            if not keyboard:
+                context.application.create_task(auto_delete(note, 10))
         except Exception as e:
+            group_doc = await group_repo.get(group_id)
+            await notify_group_failure(
+                context.bot,
+                group_doc or {"_id": group_id, "title": title, "username": username, "link": group_link},
+                e,
+            )
             await msg.reply_text(
-                f"⚠ Group saved, but the immediate promotion post failed: {e}\n"
-                f"It will still be retried on the next hourly cycle."
+                f"⚠ Group saved, but the immediate promotion post failed — this group has been "
+                f"deactivated and will not be retried automatically.\nReason: {e}\n"
+                f"Fix the issue, then use /set_target again."
             )
 
     return ConversationHandler.END
@@ -173,7 +197,7 @@ async def _build_groups_page(page: int):
         lines.append("No groups added yet. Use /set_target.")
     else:
         for g in chunk:
-            lines.append(f"• {g['title']} - {g.get('total_posted', 0)}")
+            lines.append(f"• {g['title']} - {g.get('total_posted', 0)} — <code>{g['_id']}</code>")
     text = "\n".join(lines)
 
     keyboard = InlineKeyboardMarkup([[
@@ -204,3 +228,20 @@ async def groups_page_callback(update, context):
         await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
     except Exception:
         pass
+
+
+@admin_only
+@safe_handler
+async def remove_group(update, context):
+    args = context.args
+    if not args:
+        await update.message.reply_text("Usage: /remove_group <group_id>\n(Get the ID from /groups)")
+        return
+    try:
+        group_id = int(args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Invalid group ID.")
+        return
+    await group_repo.remove(group_id)
+    success = await update.message.reply_text("✅ Group removed.")
+    context.application.create_task(auto_delete(success, 10))

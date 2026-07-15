@@ -32,10 +32,10 @@ async def repost_via_userbot(target_id, source_channel_id, message_id, retries=2
 
             target = target_id
             if message.media:
-                await client.send_file(target, message.media, caption=message.text or "")
+                sent = await client.send_file(target, message.media, caption=message.text or "")
             else:
-                await client.send_message(target, message.text or "")
-            return
+                sent = await client.send_message(target, message.text or "")
+            return sent
 
         except FloodWaitError as e:
             logger.warning("FloodWait %ss while reposting to %s", e.seconds, target_id)

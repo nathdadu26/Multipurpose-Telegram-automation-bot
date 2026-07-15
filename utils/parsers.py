@@ -28,3 +28,17 @@ def parse_message_ref(text: str):
         return None, int(text)
 
     raise ValueError("Couldn't parse a message link or ID from that text.")
+
+
+def build_message_link(chat_id, message_id, username=None):
+    """Build a t.me link to a specific message.
+    Uses the public username form if available, otherwise the /c/ private
+    form (only works for supergroups/channels, which use the -100 prefix —
+    old-style basic groups have no stable public link format)."""
+    if username:
+        return f"https://t.me/{username}/{message_id}"
+    chat_id_str = str(chat_id)
+    if chat_id_str.startswith("-100"):
+        internal_id = chat_id_str[4:]
+        return f"https://t.me/c/{internal_id}/{message_id}"
+    return None

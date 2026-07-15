@@ -6,6 +6,7 @@ from handlers.admin_filter import admin_only
 from utils.error_handler import safe_handler
 from utils.auto_delete import auto_delete
 from database.repositories.channel_repo import channel_repo
+from userbot.folder_manager import add_to_target_channels_folder
 
 logger = logging.getLogger("channels")
 
@@ -35,6 +36,11 @@ async def add_channel_receive(update: Update, context: ContextTypes.DEFAULT_TYPE
     username = chat.username
 
     await channel_repo.add(channel_id, title, username)
+
+    try:
+        await add_to_target_channels_folder(channel_id)
+    except Exception as e:
+        logger.error("Couldn't add %s to 'Target Channels' folder: %s", title, e)
 
     success = await msg.reply_text(
         f"✅ <b>Channel Added</b>\n\n📁 {title}\n🆔 <code>{channel_id}</code>",

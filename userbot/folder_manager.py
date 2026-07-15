@@ -4,12 +4,15 @@ from userbot.client import userbot
 
 logger = logging.getLogger("userbot")
 
-FOLDER_TITLE = "Completed"
+COMPLETED_FOLDER_TITLE = "Completed"
+POSTS_GROUPS_FOLDER_TITLE = "Posts Groups"
+TARGET_CHANNELS_FOLDER_TITLE = "Target Channels"
 
 
-async def move_to_completed_folder(peer):
-    """Move the given chat into a Telegram Chat Folder named 'Completed',
-    creating the folder if it doesn't already exist."""
+async def add_chat_to_folder(peer, folder_title: str):
+    """Add the given chat into a Telegram Chat Folder with the given title,
+    creating the folder if it doesn't already exist. Safe to call
+    repeatedly — a chat already in the folder is left alone."""
     client = userbot.client
     entity = await client.get_entity(peer)
     input_peer = await client.get_input_entity(entity)
@@ -22,7 +25,7 @@ async def move_to_completed_folder(peer):
         if isinstance(f, types.DialogFilter):
             title = f.title
             title_text = title.text if hasattr(title, "text") else title
-            if title_text == FOLDER_TITLE:
+            if title_text == folder_title:
                 target_filter = f
                 break
 
@@ -31,7 +34,7 @@ async def move_to_completed_folder(peer):
         new_id = (max(existing_ids) + 1) if existing_ids else 2
         target_filter = types.DialogFilter(
             id=new_id,
-            title=FOLDER_TITLE,
+            title=folder_title,
             pinned_peers=[],
             include_peers=[input_peer],
             exclude_peers=[],
@@ -45,7 +48,7 @@ async def move_to_completed_folder(peer):
             exclude_archived=False,
         )
         await client(functions.messages.UpdateDialogFilterRequest(id=new_id, filter=target_filter))
-        logger.info("Created 'Completed' chat folder")
+        logger.info("Created '%s' chat folder", folder_title)
     else:
         already_in = any(
             getattr(p, "channel_id", None) == getattr(input_peer, "channel_id", object())
@@ -54,4 +57,22 @@ async def move_to_completed_folder(peer):
         if not already_in:
             target_filter.include_peers.append(input_peer)
             await client(functions.messages.UpdateDialogFilterRequest(id=target_filter.id, filter=target_filter))
-        logger.info("Moved source chat into 'Completed' folder")
+        logger.info("Added chat into '%s' folder", folder_title)
+
+
+async def move_to_completed_folder(peer):
+    """Move the given chat into the 'Completed' chat folder (used after a
+    /copy_all job finishes)."""
+    await add_chat_to_folder(peer, COMPLETED_FOLDER_TITLE)
+
+
+async def add_to_posted_groups_folder(peer):
+    """Add the given chat into the 'Posts Groups' chat folder (used when a
+    group is registered via /set_target)."""
+    await add_chat_to_folder(peer, POSTS_GROUPS_FOLDER_TITLE)
+
+
+async def add_to_target_channels_folder(peer):
+    """Add the given chat into the 'Target Channels' chat folder (used when
+    a channel is registered via /add_channel)."""
+    await add_chat_to_folder(peer, TARGET_CHANNELS_FOLDER_TITLE)

@@ -29,6 +29,7 @@ async def help_cmd(update, context):
         "/ad_promotion – set promotional message\n"
         "/set_target – add promotion group\n"
         "/groups – list promotion groups\n"
+        "/remove_group &lt;id&gt; – remove a promotion group\n"
         "/resume – resume paused copy job\n"
         "/cancel – cancel current job\n"
         "/status – current job status\n"

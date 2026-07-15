@@ -6,9 +6,9 @@ class GroupRepo:
     def col(self):
         return mongo.db["groups"]
 
-    async def add(self, group_id, title, username=None):
+    async def add(self, group_id, title, username=None, link=None):
         doc = {
-            "_id": group_id, "title": title, "username": username,
+            "_id": group_id, "title": title, "username": username, "link": link,
             "active": True, "fail_count": 0, "total_posted": 0,
         }
         await self.col.update_one({"_id": group_id}, {"$setOnInsert": doc}, upsert=True)
@@ -17,8 +17,14 @@ class GroupRepo:
     async def list_all(self):
         return [d async for d in self.col.find({"active": True})]
 
+    async def get(self, group_id):
+        return await self.col.find_one({"_id": group_id})
+
     async def remove(self, group_id):
         await self.col.delete_one({"_id": group_id})
+
+    async def set_active(self, group_id, active: bool):
+        await self.col.update_one({"_id": group_id}, {"$set": {"active": active}})
 
     async def record_failure(self, group_id, max_failures=3):
         """Increment consecutive-failure count; deactivate after max_failures.
